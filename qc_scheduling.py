@@ -1,10 +1,10 @@
-from itertools import product
 from pulp import *
 from search import SearchProblem
 
 class QCState:
     def __init__(self, num_qcs, lpModel = None):
         self.qc_assigned_tasks = [[] for _ in range(num_qcs)]
+        self.qc_completion_time = [0] * num_qcs
         self.lpModel = lpModel
 
     def __eq__(self, other):
@@ -22,6 +22,15 @@ class QCState:
     
     def assigned_tasks(self):
         return sum(self.qc_assigned_tasks, [])
+    
+    def clone(self):
+        cloned_state = QCState(len(self.qc_assigned_tasks), self.lpModel.copy())
+        cloned_state.qc_assigned_tasks = [tasks.copy() for tasks in self.qc_assigned_tasks]
+        cloned_state.qc_completion_time = self.qc_completion_time.copy()
+        return cloned_state
+    
+    def objective(self):
+        return max(self.qc_completion_time)
 
 class QCScheduling(SearchProblem):
     M = 9999
@@ -55,21 +64,18 @@ class QCScheduling(SearchProblem):
 
     def getNextState(self, state, action):
         qc, task = action
-        next_state = QCState(len(state.qc_assigned_tasks), state.lpModel.copy())
-        next_state.qc_assigned_tasks = [tasks.copy() for tasks in state.qc_assigned_tasks]
+        next_state = state.clone()
         next_state.qc_assigned_tasks[qc].append(task)
+        next_state.qc_completion_time[qc] += self.task_durations[task]
 
         # Add more constraints
-        if len(next_state.qc_assigned_tasks[qc]) == 1:
-            # Constraint 3
-            next_state.lpModel += self.X0jk[task][qc] == 1
-            next_state.lpModel += self.Yk[qc] >= self.task_durations[task]
-        else:
-            # Constraint 5
-            task_i, task_j = next_state.qc_assigned_tasks[qc][-2:]
-            next_state.lpModel += self.Xijk[task_i][task_j][qc] == 1
-            next_state.lpModel += self.Yk[qc] >= self.get_qc_completion_time(next_state)[qc]
-
+        # if len(next_state.qc_assigned_tasks[qc]) > 1:
+        #     task_i, task_j = next_state.qc_assigned_tasks[qc][-2:]
+        #     next_state.lpModel += self.Xijk[task_i + 1][task_j + 1][qc] == 1 # (4)
+        # else:
+        #     next_state.lpModel += self.Xijk[0][task + 1][qc] == 1 # (3)
+        # next_state.lpModel += self.Yk[qc] >= next_state.qc_completion_time[qc]
+        
         return next_state
     
     def initModel(self):
@@ -77,11 +83,8 @@ class QCScheduling(SearchProblem):
         QCS = range(self.num_qcs)
 
         # Define variables
-        self.Xijk = LpVariable.dicts("X", (TASKS, TASKS, QCS), cat="Binary")
-        self.X0jk = LpVariable.dicts("X0", (TASKS, QCS), cat="Binary")
-        self.XTjk = LpVariable.dicts("XT", (TASKS, QCS), cat="Binary")
+        self.Xijk = LpVariable.dicts("X", (range(self.num_tasks + 1), range(1, self.num_tasks + 2), QCS), cat="Binary")
         self.Zij = LpVariable.dicts("Z", (TASKS, TASKS), cat="Binary")
-
         self.Yk = LpVariable.dicts("Y", QCS, lowBound=0)
         self.Di = LpVariable.dicts("D", TASKS, lowBound=0)
         self.C = LpVariable("C", lowBound=0)
@@ -89,68 +92,63 @@ class QCScheduling(SearchProblem):
         # Create model
         prob = LpProblem("QCScheduling", LpMinimize)
 
-        # Objective function
+        # Objective function (1)
         prob += self.C, "Minimize_makespan"
 
-        # Constraint 2
+        # (2)
+        init_low_bound = sum(self.task_durations) * 1.0 / self.num_qcs
+        prob += self.C >= init_low_bound
         for k in QCS:
-            prob += self.Yk[k] <= self.C
+            prob += self.C >= self.Yk[k]
 
-        # # Constraint 3 & 4
+        # (3) & (4)
         for k in QCS:
-            prob += lpSum([self.X0jk[j][k] for j in TASKS]) == 1 # (3)
-            prob += lpSum([self.XTjk[j][k] for j in TASKS]) == 1 # (4)
+            prob += lpSum([self.Xijk[0][j + 1][k] for j in TASKS]) == 1
+            prob += lpSum([self.Xijk[i + 1][self.num_tasks + 1][k] for i in TASKS]) == 1
 
-        # # Constraint 5
+        # (5)
         for j in TASKS:
-            sum_Xijk = lpSum([self.Xijk[i][j][k] for i in TASKS for k in QCS])
-            sum_X0jk = lpSum([self.X0jk[j][k] for k in QCS])
-            prob += sum_Xijk + sum_X0jk == 1
+            prob += lpSum([self.Xijk[i + 1][j + 1][k] for i in TASKS for k in QCS]) == 1
 
-        # Constraint 6
-        # for i in TASKS:
-        #     for k in QCS:
-        #         sum_Xjik = lpSum([self.Xijk[j][i][k] for j in TASKS])
-        #         sum_Xijk = lpSum([self.Xijk[i][j][k] for j in TASKS])
-        #         prob += sum_Xjik + self.X0jk[i][k] - sum_Xijk - self.XTjk[i][k] == 1
+        # (6)
+        for k in QCS:
+            for i in TASKS:
+                sum_ij = lpSum([self.Xijk[i + 1][j + 1][k] for j in TASKS])
+                sum_ji = lpSum([self.Xijk[j + 1][i + 1][k] for j in TASKS])
+                prob += sum_ij == sum_ji
 
-        # Constraint 7
-        # for i, j in product(TASKS, TASKS):
-        #     for k in QCS:
-        #         prob += self.Di[i] + self.task_durations[i] - self.Di[j] <= self.M * (1 - self.Xijk[i][j][k])
+        # (7)
+        for k in QCS:
+            for i in TASKS:
+                for j in TASKS:
+                    if i == j: continue
+                    prob += self.Di[i] + self.task_durations[j] - self.Di[j] <= self.M * (1 - self.Xijk[i + 1][j + 1][k])
 
-        # Constraint 8
+        # (8)
         for i, j in self.precedence_constrained_tasks:
-            self.Di[i] + self.task_durations[j] <= self.Di[j]
+            prob += self.Di[i] + self.task_durations[j] <= self.Di[j]
 
-        # # Constraint 9
-        # for i, j in product(TASKS, TASKS):
-        #     if i == j: continue
-        #     for k in QCS:
-        #         prob += self.Di[i] - self.Di[j] + self.task_durations[j] <= self.M * (1 - self.Zij[i][j])
+        # (9)
+        for i in TASKS:
+            for j in TASKS:
+                if i == j: continue
+                prob += self.Di[i] - self.Di[j] + self.task_durations[j] <= self.M * (1 - self.Zij[i][j])
 
-        # Constraint 10
+        # (10)
         for i, j in self.non_simultaneous_tasks:
             prob += self.Zij[i][j] + self.Zij[j][i] == 1
             
-        # Constraint 12
-        for j in TASKS:
-            for k in QCS:
-                prob += self.Di[j] - self.Yk[k] <= self.M * (1 - self.XTjk[j][k])
-
-        # Custom constraint
+        # (12)
         for k in QCS:
-            prob += self.Yk[k] >= min(self.task_durations)
+            for j in TASKS:
+                prob += self.Di[j] - self.Yk[k] <= self.M * (1 - self.Xijk[j + 1][self.num_tasks + 1][k])
 
         return prob
     
-    def add_objective_upperbound(self, state, upperbound):
-        state.lpModel += self.C <= upperbound
-        
-    def add_objective_lowerbound(self, state, lowerbound):
-        state.lpModel += self.C >= lowerbound
+    def addObjectiveUpBound(self, state, upBound):
+        state.lpModel += self.C <= upBound
     
-    def get_task_completion_time(self, state):
+    def getTaskCompletionTime(self, state):
         result = {}
         for tasks in state.qc_assigned_tasks:
             completed_time = 0
@@ -162,16 +160,9 @@ class QCScheduling(SearchProblem):
                 result[task] = completed_time
         return result
     
-    def get_qc_completion_time(self, state):
-        result = {}
-        for qc, tasks in enumerate(state.qc_assigned_tasks):
-            result[qc] = sum([self.task_durations[task] for task in tasks])
-        return result
-    
-    def lower_bound(self, state):
+    def computeLowBound(self, state):
         remaining_tasks = set(range(self.num_tasks)).difference(state.assigned_tasks())
-        sum_remaining_task_duration = sum([self.task_durations[task] for task in remaining_tasks])
-        Ck = self.get_qc_completion_time(state)
-        sum_qc_completed_time = sum(Ck.values())
-        bm = (sum_remaining_task_duration + sum_qc_completed_time) * 1.0 / self.num_qcs
-        return max(max(Ck.values()), bm)
+        sum_ck = sum(state.qc_completion_time)
+        sum_pi = sum([self.task_durations[task] for task in remaining_tasks])
+        bm = (sum_ck + sum_pi) * 1.0 / self.num_qcs
+        return max(max(state.qc_completion_time), bm)

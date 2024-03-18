@@ -1,3 +1,4 @@
+from time import time
 from pulp import *
 from search import *
 import util
@@ -28,24 +29,24 @@ def branch_and_bound_dfs():
     solutions = []
     best_objective = float('inf')
     first_feasible = False
+    count = 0
 
+    start_time = time()
     while not fringe.isEmpty():
+        count += 1
         node = fringe.pop()
-        node.state.lpModel.solve(PULP_CBC_CMD(msg=False))
-        solved_objective = node.state.lpModel.objective.value()
+        node.state.lpModel.solve()
+        curr_objective = node.state.lpModel.objective.value()
 
         # Feasible solution found
         if node.state.lpModel.status == LpStatusOptimal:
-            # First feasible solution
-            if not first_feasible:
-                print('First feasible solution: ', solved_objective)
-                first_feasible = True
-
             # Last level
             if qcs.isGoalState(node.state):
-                if solved_objective < best_objective:
-                    best_objective = solved_objective
-                    qcs.add_objective_upperbound(node.state, best_objective)
+                explored.add(node.state)
+                curr_objective = node.state.objective()
+                if curr_objective < best_objective:
+                    best_objective = curr_objective
+                    qcs.addObjectiveUpBound(node.state, best_objective)
                     solutions.append(node)
                 continue
         
@@ -68,28 +69,26 @@ def branch_and_bound_dfs():
 
         # Calculate lower bound and prune sub-tree
         for child_node in feasible_child_nodes:
-            if qcs.lower_bound(child_node.state) > best_objective:
+            if qcs.computeLowBound(child_node.state) > best_objective:
                 explored.add(child_node.state)
             else:
                 fringe.push(child_node)
 
-    print('Number of solutions: ', len(solutions))
-    best_sol = None
-    best_objective = float('inf')
     if len(solutions) > 0:
+        best_sol = None
         for sol in solutions:
-            total_completion_time = max(qcs.get_qc_completion_time(sol.state).values())
-            if total_completion_time < best_objective:
-                best_objective = total_completion_time
+            if sol.state.objective() <= best_objective:
                 best_sol = sol
         
+        print('Number of solutions: ', len(solutions))
         print('Best solution: ', best_objective)
         print(best_sol.state)
     else:
         print('No solution found')
+    print(f'Done in {time() - start_time}(s) with {count}(iters)')
 
 def violate_constraints_8(qcs, state):
-    task_completion_time_map = qcs.get_task_completion_time(state)
+    task_completion_time_map = qcs.getTaskCompletionTime(state)
     for i, j in phi:
         if i not in task_completion_time_map or j not in task_completion_time_map:
             return False
