@@ -2,12 +2,14 @@ from pulp import *
 from search import SearchProblem
 import csv
 import os
+import numpy as np
 
 
 class QCState:
-    def __init__(self, num_qcs, lpModel = None):
+    def __init__(self, num_qcs, init_locations, lpModel = None):
         self.qc_assigned_tasks = [[] for _ in range(num_qcs)]
         self.qc_completion_time = [0] * num_qcs
+        self.lc = init_locations
         self.lpModel = lpModel
 
     def __eq__(self, other):
@@ -27,7 +29,8 @@ class QCState:
         return sum(self.qc_assigned_tasks, [])
     
     def clone(self):
-        cloned_state = QCState(len(self.qc_assigned_tasks), self.lpModel.copy())
+        model = None if self.lpModel is None else self.lpModel.copy()
+        cloned_state = QCState(len(self.qc_assigned_tasks), self.lc.copy(), model)
         cloned_state.qc_assigned_tasks = [tasks.copy() for tasks in self.qc_assigned_tasks]
         cloned_state.qc_completion_time = self.qc_completion_time.copy()
         return cloned_state
@@ -35,11 +38,29 @@ class QCState:
     def objective(self):
         return max(self.qc_completion_time)
     
+    def addConstraint3(self, task, qc, qcs):
+        if self.lpModel is None: return
+        self.lpModel += qcs.Xijk[0][task + 1][qc] == 1
+    
+    def addConstraint4(self, task_i, task_j, qc, qcs):
+        if self.lpModel is None: return
+        self.lpModel += qcs.Xijk[task_i + 1][task_j + 1][qc] == 1
+        self.lpModel += qcs.Zij[task_i][task_j] == 1
+    
+    def addConstraintYk(self, qc, completion_time, qcs):
+        if self.lpModel is None: return
+        self.lpModel += qcs.Yk[qc] >= completion_time
+
+    def addConstraintDi(self, task, completion_time, qcs):
+        if self.lpModel is None: return
+        self.lpModel += qcs.Di[task] >= completion_time
+    
     def result(self, action, qcs):
         qc, task = action
         next_state = self.clone()
         next_state.qc_assigned_tasks[qc].append(task)
         next_state.qc_completion_time[qc] += qcs.task_durations[task]
+        next_state.lc[qc] = qcs.task_locations[task]
 
         # Set decision variables
         if len(next_state.qc_assigned_tasks[qc]) > 1:
@@ -49,7 +70,44 @@ class QCState:
             next_state.addConstraint3(task, qc, qcs)
         next_state.addConstraintYk(qc, next_state.qc_completion_time[qc], qcs)
         next_state.addConstraintDi(task, next_state.qc_completion_time[qc], qcs)
+
         return next_state
+    
+    def evaluateGrasp(self, qcs):
+        self.lpModel = qcs.initModel()
+        grasp_ck = [0] * len(self.qc_completion_time)
+        for qc, tasks in enumerate(self.qc_assigned_tasks):
+            lc = qcs.qc_locations[qc]
+            ck = 0
+            yk = 0
+            for i, task in enumerate(tasks):
+                # TODO: if quary crane movable, add value to this
+                # move_time = abs(lc - qcs.task_locations[task])
+                move_time = 0
+                ck += move_time + qcs.task_durations[task]
+                lc = qcs.task_locations[task]
+                yk += qcs.task_durations[task]
+                self.addConstraintDi(task, yk, qcs)
+
+                if i > 0:
+                    self.addConstraint4(tasks[i - 1], task, qc, qcs)
+                else:
+                    self.addConstraint3(task, qc, qcs)
+
+            self.addConstraintYk(qc, yk, qcs)
+            grasp_ck[qc] = ck
+            self.lc[qc] = qcs.task_locations[tasks[-1]]
+        self.qc_completion_time = grasp_ck
+    
+    def status(self):
+        if self.lpModel is None: return 'Optimal'
+
+        self.lpModel.solve(PULP_CBC_CMD(msg=False))
+        return LpStatus[self.lpModel.status]
+
+
+    def isFeasible(self):
+        return self.status() == 'Optimal'
 
 class QCScheduling(SearchProblem):
     M = 9999
@@ -66,8 +124,9 @@ class QCScheduling(SearchProblem):
         self.precedence_constrained_tasks = precedence_constrained_tasks
         self.num_ship_bays = max(task_locations)
     
-    def getStartState(self):
-        return QCState(self.num_qcs, self.initModel())
+    def getStartState(self, model=True):
+        model = self.initModel() if model else None
+        return QCState(self.num_qcs, self.qc_locations, model)
     
     def isGoalState(self, state):
         return len(state.assigned_tasks()) == self.num_tasks
@@ -85,7 +144,7 @@ class QCScheduling(SearchProblem):
                 if abs(self.qc_locations[qc] - self.task_locations[task]) < (self.num_ship_bays * 1.0 / self.num_qcs):
                     valid_actions.append((qc, task))
         return valid_actions
-
+    
     def getActionCost(self, state, action, next_state):
         return 1
 
@@ -164,7 +223,6 @@ class QCScheduling(SearchProblem):
             for j in TASKS:
                 prob += self.Di[j] - self.Yk[k] <= self.M * (1 - self.Xijk[j + 1][self.num_tasks + 1][k])
 
-        prob.writeLP("QCScheduling.lp")
         return prob
     
     def inspect1(self, prob, verbose = True, onlyFailed = False):
@@ -368,3 +426,35 @@ class QCScheduling(SearchProblem):
         sum_pi = sum([self.task_durations[task] for task in remaining_tasks])
         bm = (sum_ck + sum_pi) * 1.0 / self.num_qcs
         return max(max(state.qc_completion_time), bm)
+    
+    def expandGrasp(self, state, greedy=1.0):
+        actions = self.getActions(state)
+
+        # Step 1: select QC with the minimum completion time (Ck)
+        selected_qc = None
+        min_ck = float('inf')
+        for qc in set([qc for qc, _ in actions]):
+            if min_ck > state.qc_completion_time[qc]:
+                min_ck = state.qc_completion_time[qc]
+                selected_qc = qc
+        actions = [(qc, task) for qc, task in actions if qc == selected_qc]
+
+        # Step 2: greedy filter
+        weights = [1.0 / (abs(state.lc[qc] - self.task_locations[task]) + 1) for qc, task in actions]
+        rv = greedy * max(weights)
+        F = []
+        probs = []
+        for qc, task in actions:
+            lv = 1.0 / (abs(state.lc[qc] - self.task_locations[task]) + 1)
+            if lv >= rv:
+                F.append((qc, task))
+                probs.append(lv)
+
+        # Step 3: select with probability
+        if len(F) == 0:
+            print('Warning: step 2 constructed an empty set (try change alpha)')
+            idx = np.random.choice(np.arange(len(actions)), p=[p / sum(probs) for p in weights])
+            return state.result(actions[idx], self)
+        else:
+            idx = np.random.choice(np.arange(len(F)), p=[p / sum(probs) for p in probs])
+            return state.result(F[idx], self)

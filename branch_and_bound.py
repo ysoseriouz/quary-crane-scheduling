@@ -53,16 +53,15 @@ def branch_and_bound_dfs(qcs):
                 else:
                     fringe.push(child_node)
 
+    print(f'Done in {time() - start_time}(s) with {count}(iters)')
+
     if solution:
         prob = solution.state.lpModel
         prob.solve(PULP_CBC_CMD(msg=1))
-        print(f'Best solution ({LpStatus[prob.status]}): {solution.state.objective()}')
-        print(solution.state)
         qcs.export(prob, 'branch_and_bound')
-    else:
-        print('No solution found')
-
-    print(f'Done in {time() - start_time}(s) with {count}(iters)')
+        return solution.state
+    
+    return None
 
 def violate_constraints_8(qcs, state):
     task_completion_time_map = qcs.getTaskCompletionTime(state)
