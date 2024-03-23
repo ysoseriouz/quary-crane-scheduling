@@ -44,13 +44,11 @@ class QCState:
         # Set decision variables
         if len(next_state.qc_assigned_tasks[qc]) > 1:
             task_i, task_j = next_state.qc_assigned_tasks[qc][-2:]
-            next_state.lpModel += qcs.Xijk[task_i + 1][task_j + 1][qc] == 1 # (4)
-            next_state.lpModel += qcs.Zij[task_i][task_j] == 1
+            next_state.addConstraint4(task_i, task_j, qc, qcs)
         else:
-            next_state.lpModel += qcs.Xijk[0][task + 1][qc] == 1 # (3)
-        next_state.lpModel += qcs.Yk[qc] >= next_state.qc_completion_time[qc]
-        next_state.lpModel += qcs.Di[task] >= next_state.qc_completion_time[qc]
-        
+            next_state.addConstraint3(task, qc, qcs)
+        next_state.addConstraintYk(qc, next_state.qc_completion_time[qc], qcs)
+        next_state.addConstraintDi(task, next_state.qc_completion_time[qc], qcs)
         return next_state
 
 class QCScheduling(SearchProblem):
