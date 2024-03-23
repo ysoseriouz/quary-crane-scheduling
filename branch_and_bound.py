@@ -54,10 +54,11 @@ def branch_and_bound_dfs(qcs):
                     fringe.push(child_node)
 
     if solution:
-        solution.state.lpModel.solve(PULP_CBC_CMD(msg=1))
-        print(f'Best solution ({LpStatus[solution.state.lpModel.status]}): {solution.state.objective()}')
+        prob = solution.state.lpModel
+        prob.solve(PULP_CBC_CMD(msg=1))
+        print(f'Best solution ({LpStatus[prob.status]}): {solution.state.objective()}')
         print(solution.state)
-        qcs.export(solution.state.lpModel, 'branch_and_bound')
+        qcs.export(prob, 'branch_and_bound')
     else:
         print('No solution found')
 
