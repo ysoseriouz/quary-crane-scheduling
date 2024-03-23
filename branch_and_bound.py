@@ -22,7 +22,7 @@ def branch_and_bound_dfs(qcs):
         node = fringe.pop()
         node.state.lpModel.solve(PULP_CBC_CMD(msg=False))
 
-        if objective <= value(node.state.lpModel.objective):
+        if objective <= value(node.state.lpModel.objective) or LpStatus[node.state.lpModel.status] != 'Optimal':
             explored.add(node.state)
         elif qcs.isGoalState(node.state):
             explored.add(node.state)
