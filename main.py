@@ -1,8 +1,7 @@
-import numpy as np
-import csv
+from pulp import LpStatus, PULP_CBC_CMD
 from qc_scheduling import QCScheduling
 from branch_and_bound import branch_and_bound_dfs
-from grasp import launch, construct_greedy_solution
+from grasp import launch
 
 # Define problem data
 NUMBER_OF_TASKS = 5
@@ -29,8 +28,10 @@ qcs = QCScheduling(
     {}
 )
 
-def displayResult(solution):
+def displayResult(solution, filename):
     if solution:
+        solution.lpModel.solve(PULP_CBC_CMD(msg=1))
+        qcs.export(solution.lpModel, filename)
         print(f'Best solution ({solution.status()}): {solution.objective()}')
         print(solution)
     else:
@@ -39,19 +40,15 @@ def displayResult(solution):
 def run_branch_and_bound():
     print('Running branch and bound...')
     solution = branch_and_bound_dfs(qcs)
-    displayResult(solution)
+    displayResult(solution, filename='branch_and_bound')
 
 def run_grasp():
-    """
-    Main function.
-
-    Try different alpha value to test which greedy level is the best. Call
-    """
     print('Running GRASP...')
+    # TODO: try with different values of r and early_stop
     r = 0.4
-    early_stop = 2
+    early_stop = 100
     solution = launch(qcs, r, early_stop)
-    displayResult(solution)
+    displayResult(solution, filename='grasp')
 
 
 def main():
