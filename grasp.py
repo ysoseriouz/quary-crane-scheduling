@@ -18,6 +18,8 @@ def launch(qcs, alpha, early_stop):
         if count % 100 == 0:
             print('ITERATION %d' % count)
         new_sol = construct_greedy_solution(qcs, alpha)
+        if new_sol is None:
+            continue
         new_sol = local_search(new_sol, early_stop, qcs)
 
         if new_sol.objective() < best_cost and new_sol.isFeasible():
@@ -34,6 +36,8 @@ def construct_greedy_solution(qcs, alpha):
     state = qcs.getStartState()
     while not qcs.isGoalState(state):
         state = qcs.expandGrasp(state, alpha)
+        if state is None:
+            return None
 
     return state
 

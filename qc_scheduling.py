@@ -108,6 +108,10 @@ class QCState:
 
     def isFeasible(self):
         return self.status() == 'Optimal'
+    
+    def getSortedQC(self):
+        return sorted(range(len(self.qc_completion_time)), key=self.qc_completion_time.__getitem__)
+
 
 class QCScheduling(SearchProblem):
     M = 9999
@@ -139,11 +143,32 @@ class QCScheduling(SearchProblem):
     def getActions(self, state):
         remaining_tasks = set(range(self.num_tasks)).difference(state.assigned_tasks())
         valid_actions = []
-        for qc in range(self.num_qcs):
+        for qc in state.getSortedQC():
             for task in remaining_tasks:
-                if abs(self.qc_locations[qc] - self.task_locations[task]) < (self.num_ship_bays * 1.0 / self.num_qcs):
-                    valid_actions.append((qc, task))
+                if abs(self.qc_locations[qc] - self.task_locations[task]) >= (self.num_ship_bays * 1.0 / self.num_qcs):
+                    continue
+                # Violate constraint 8
+                if self.actionViolateConstraint8(state, (qc, task)):
+                    continue
+                valid_actions.append((qc, task))
         return valid_actions
+    
+    def actionViolateConstraint8(self, state, action):
+        qc, task = action
+        task_completion_time_map = self.getTaskCompletionTime(state)
+        task_completion_time_map[task] = state.qc_completion_time[qc] + self.task_durations[task]
+
+        for task_i, task_j in self.precedence_constrained_tasks:
+            i, j = task_i - 1, task_j - 1
+            if i not in task_completion_time_map or j not in task_completion_time_map:
+                continue
+            
+            Di = task_completion_time_map[i]
+            Dj = task_completion_time_map[j]
+            if Di + self.task_durations[j] > Dj:
+                return True
+            
+        return False
     
     def getActionCost(self, state, action, next_state):
         return 1
@@ -188,6 +213,7 @@ class QCScheduling(SearchProblem):
                 sum_ji = lpSum([self.Xijk[j + 1][i + 1][k] for j in TASKS])
                 prob += sum_ij == sum_ji
 
+        # TODO: not sure about this constraint
         # (7)
         # for k in QCS:
         #     for i in TASKS:
@@ -197,7 +223,7 @@ class QCScheduling(SearchProblem):
 
         # (8)
         for i, j in self.precedence_constrained_tasks:
-            prob += self.Di[i] + self.task_durations[j] <= self.Di[j]
+            prob += self.Di[i - 1] + self.task_durations[j - 1] <= self.Di[j - 1]
 
         # (9)
         for i in TASKS:
@@ -302,13 +328,13 @@ class QCScheduling(SearchProblem):
         if verbose:
             print('(8) Di + Pj <= Dj')
         for i, j in self.precedence_constrained_tasks:
-            di = value(self.Di[i])
-            dj = value(self.Dj[i])
-            pj = self.task_durations[j]
+            di = value(self.Di[i - 1])
+            dj = value(self.Dj[i - 1])
+            pj = self.task_durations[j - 1]
             status = di + pj <= dj
             final_status &= status
             if verbose and (not onlyFailed or not status):
-                print(f'Task{i + 1}, Task{j + 1}: {lv} <= {rv} ({status})')
+                print(f'Task{i}, Task{j}: {lv} <= {rv} ({status})')
         
         if verbose:
             print('(9) Di - Dj + Pj <= M(1 - Zij)')
@@ -438,6 +464,9 @@ class QCScheduling(SearchProblem):
                 min_ck = state.qc_completion_time[qc]
                 selected_qc = qc
         actions = [(qc, task) for qc, task in actions if qc == selected_qc]
+
+        if len(actions) == 0:
+            return None
 
         # Step 2: greedy filter
         weights = [1.0 / (abs(state.lc[qc] - self.task_locations[task]) + 1) for qc, task in actions]

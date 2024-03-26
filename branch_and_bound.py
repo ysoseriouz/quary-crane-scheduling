@@ -36,9 +36,7 @@ def branch_and_bound_dfs(qcs):
             if node.state not in explored:
                 explored.add(node.state)
                 for child, action, cost in qcs.expand(node.state):
-                    if violate_constraints_8(qcs, child):
-                        explored.add(child)
-                    elif child not in explored:
+                    if child not in explored:
                         child_node = Node(state=child, parent=node, action=action, 
                                             depth=node.depth + 1, cost=node.cost + cost)
                         feasible_child_nodes.append(child_node)
@@ -54,20 +52,7 @@ def branch_and_bound_dfs(qcs):
                     fringe.push(child_node)
 
     print(f'Done in {time() - start_time}(s) with {count}(iters)')
-    return solution.state
-
-def violate_constraints_8(qcs, state):
-    task_completion_time_map = qcs.getTaskCompletionTime(state)
-    for i, j in qcs.precedence_constrained_tasks:
-        if i not in task_completion_time_map or j not in task_completion_time_map:
-            return False
-        
-        Di = task_completion_time_map[i]
-        Dj = task_completion_time_map[j]
-        if Di + qcs.task_durations[j] > Dj:
-            return True
-    
-    return False
+    return solution.state if solution is not None else None
 
 def delete_dominated_nodes(qcs, nodes, explored):
     pass
