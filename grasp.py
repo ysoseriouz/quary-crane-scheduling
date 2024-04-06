@@ -3,8 +3,8 @@
 import random
 from time import time
 
-
 MAX_ITERATION = 1000
+TIME_LIMIT = 10800 # 3 hours
 
 def launch(qcs, alpha, early_stop):
     count = 0
@@ -12,15 +12,19 @@ def launch(qcs, alpha, early_stop):
 
     best_cost = float('inf')
     best_sol = None
+    explored = set()
 
     while count < MAX_ITERATION:
         count += 1
         if count % 100 == 0:
             print('ITERATION %d' % count)
+            if time() - start_time >= TIME_LIMIT:
+                print('Time limit exceeded')
+                break
         new_sol = construct_greedy_solution(qcs, alpha)
         if new_sol is None:
             continue
-        new_sol = local_search(new_sol, early_stop, qcs)
+        new_sol = local_search(new_sol, early_stop, qcs, explored)
 
         if new_sol.objective() < best_cost and new_sol.isFeasible():
             best_cost = new_sol.objective()
@@ -42,40 +46,42 @@ def construct_greedy_solution(qcs, alpha):
     return state
 
 
-def local_search(sol, early_stop, qcs):
-    explored = set()
+def local_search(sol, early_stop, qcs, explored):
     cost = sol.objective()
 
     explored.add(sol)
-    for qc in range(qcs.num_qcs):    
+    for qc in range(qcs.num_qcs):
         count = 0
         while count < early_stop:
+            count += 1
             new_sol = stochastic_swap(sol, qc)  # randomly swap two edges to explore the possible neighbors.
-            if new_sol in explored:
-                count += 1
-            else:
+            if new_sol is None:
+                break
+
+            if new_sol not in explored:
                 explored.add(new_sol)
                 new_sol.evaluateGrasp(qcs)
                 new_cost = new_sol.objective()   # calculate the total cost of a solution
 
                 #  update the solution and cost if a better solution is found
                 if new_cost < cost and new_sol.isFeasible():
-                    print(new_sol)
+                    print('*', end='', flush=True)
                     sol = new_sol
                     cost = new_cost
                     count = 0
-                else:
-                    count += 1
+            else:
+                del new_sol
 
     return sol
 
 
 def stochastic_swap(sol, qc):
-    sol_copy = sol.clone()
-    sol_size = len(sol_copy.qc_assigned_tasks[qc])
+    sol_size = len(sol.qc_assigned_tasks[qc])
+    # cannot swap if there are less than 2 tasks -> skip QC
     if sol_size < 2:
-        return sol_copy
+        return None
     
+    sol_copy = sol.clone()
     indices = list(range(sol_size))
 
     index1 = random.choice(indices)

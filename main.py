@@ -1,4 +1,5 @@
-from pulp import LpStatus, PULP_CBC_CMD
+import sys
+from pulp import PULP_CBC_CMD
 from qc_scheduling import QCScheduling
 from branch_and_bound import branch_and_bound_dfs
 from grasp import launch
@@ -19,18 +20,18 @@ phi = {}
 
 # qcs = QCScheduling(NUMBER_OF_TASKS, NUMBER_OF_QCS, P, L, LC, psi, phi)
 qcs = QCScheduling(
-    6,
-    2,
-    [4, 8, 10, 5, 6, 7],
-    [1, 1, 2, 3, 3, 4],
-    [1, 4],
+    25,
+    3,
+    [104, 278,166, 232, 254,265, 189, 352,108,227,400, 208, 136,173,206, 20,135,104, 365, 296,154,135,207,288, 361],
+    [1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  3,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4],
+    [1, 3, 4],
     {},
-    {(1, 2), (4, 5)}
+    {}
 )
 
 def displayResult(solution, filename):
     if solution:
-        solution.lpModel.solve(PULP_CBC_CMD(msg=1))
+        solution.lpModel.solve(PULP_CBC_CMD(msg=False))
         qcs.export(solution.lpModel, filename)
         print(f'Best solution ({solution.status()}): {solution.objective()}')
         print(solution)
@@ -46,7 +47,7 @@ def run_grasp():
     print('Running GRASP...')
     # TODO: try with different values of r and early_stop
     r = 0.4
-    early_stop = 100
+    early_stop = 50
     solution = launch(qcs, r, early_stop)
     displayResult(solution, filename='grasp')
 
@@ -57,4 +58,13 @@ def main():
     run_grasp()
 
 if __name__ == '__main__':
-    main()
+    try:
+        option = int(sys.argv[1])
+        if option == 1:
+            run_branch_and_bound()
+        elif option == 2:
+            run_grasp()
+        else:
+            main()
+    except IndexError:
+        main()

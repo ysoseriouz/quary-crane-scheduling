@@ -14,7 +14,7 @@ class QCState:
 
     def __eq__(self, other):
         return self.qc_assigned_tasks == other.qc_assigned_tasks
-    
+
     def __hash__(self):
         return hash(str(self.qc_assigned_tasks))
     
@@ -24,6 +24,21 @@ class QCState:
             result.append(f'QC{qc}: ' + ' -> '.join([str(task + 1) for task in tasks]))
 
         return "\n".join(result)
+    
+    def match(self, other):
+        task1 = self.assigned_tasks()
+        task2 = other.assigned_tasks()
+
+        return len(task1) == len(task2) and set(task1) == set(task2)
+
+    def dominate(self, other):
+        strictly = False
+        for ck1, ck2 in zip(self.qc_completion_time, other.qc_completion_time):
+            if ck1 > ck2:
+                return False
+            if ck1 < ck2:
+                strictly = True
+        return strictly
     
     def assigned_tasks(self):
         return sum(self.qc_assigned_tasks, [])

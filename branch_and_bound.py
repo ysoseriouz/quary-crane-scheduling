@@ -3,12 +3,13 @@ from pulp import *
 from search import *
 import util
 
+TIME_LIMIT = 10800 # 3 hours
 
 def branch_and_bound_dfs(qcs):
-    fringe = util.Stack()
+    fringe = util.PriorityQueue()
     explored = set()
-    start_node = Node(state=qcs.getStartState(), parent=None, action=None)
-    fringe.push(start_node)
+    start_node = qcs.getStartState()
+    fringe.push(start_node, qcs.computeLowBound(start_node))
 
     objective = float('inf')
     solution = None
@@ -19,40 +20,56 @@ def branch_and_bound_dfs(qcs):
         count += 1
         if count % 100 == 0:
             print('ITERATION %d' % count)
+            if time() - start_time >= TIME_LIMIT:
+                print('Time limit exceeded')
+                break
         node = fringe.pop()
-        node.state.lpModel.solve(PULP_CBC_CMD(msg=False))
+        node.lpModel.solve(PULP_CBC_CMD(msg=False))
 
-        if objective <= value(node.state.lpModel.objective) or LpStatus[node.state.lpModel.status] != 'Optimal':
-            explored.add(node.state)
-        elif qcs.isGoalState(node.state):
-            explored.add(node.state)
-            incumbent_objective = value(node.state.lpModel.objective)
-            if objective > incumbent_objective and LpStatus[node.state.lpModel.status] == 'Optimal':
+        if objective <= value(node.lpModel.objective) or not node.isFeasible():
+            explored.add(node)
+        elif qcs.isGoalState(node):
+            incumbent_objective = value(node.lpModel.objective)
+            if objective > incumbent_objective and node.isFeasible():
                 objective = incumbent_objective
                 solution = node
+                print(f'(ITERATION {count}) New solution found: {node.objective()}')
+                print(solution)
         else:
             # Branching
             feasible_child_nodes = []
-            if node.state not in explored:
-                explored.add(node.state)
-                for child, action, cost in qcs.expand(node.state):
+            if node not in explored:
+                explored.add(node)
+                for child, _, _ in qcs.expand(node):
                     if child not in explored:
-                        child_node = Node(state=child, parent=node, action=action, 
-                                            depth=node.depth + 1, cost=node.cost + cost)
-                        feasible_child_nodes.append(child_node)
+                        feasible_child_nodes.append(child)
 
-            # TODO: wtf is this even mean
-            delete_dominated_nodes(qcs, feasible_child_nodes, explored)
+                feasible_child_nodes = delete_dominated_nodes(feasible_child_nodes)
 
-            # Calculate lower bound and prune sub-tree
-            for child_node in feasible_child_nodes:
-                if qcs.computeLowBound(child_node.state) >= objective:
-                    explored.add(child_node.state)
-                else:
-                    fringe.push(child_node)
+                # Calculate lower bound and prune sub-tree
+                for child_node in feasible_child_nodes:
+                    minimum_lower_bound = qcs.computeLowBound(child_node)
+                    if minimum_lower_bound < objective:
+                        fringe.push(child_node, minimum_lower_bound)
 
     print(f'Done in {time() - start_time}(s) with {count}(iters)')
-    return solution.state if solution is not None else None
+    return solution if solution is not None else None
 
-def delete_dominated_nodes(qcs, nodes, explored):
-    pass
+def delete_dominated_nodes(nodes):
+    dnodes = []
+    for node in nodes:
+        found = False
+        found_idx = -1
+        for idx, dnode in enumerate(dnodes):
+            if node.match(dnode):
+                found = True
+                if node.dominate(dnode):
+                    found_idx = idx
+            if found: break
+
+        if found_idx >= 0:
+            dnodes[found_idx] = node
+        elif not found:
+            dnodes.append(node)
+
+    return dnodes
