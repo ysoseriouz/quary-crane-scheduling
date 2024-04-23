@@ -52,8 +52,9 @@ def branch_and_bound_dfs(qcs):
                     if minimum_lower_bound < objective:
                         fringe.push(child_node, minimum_lower_bound)
 
-    print(f'Done in {time() - start_time}(s) with {count}(iters)')
-    return solution if solution is not None else None
+    run_time = time() - start_time
+    print(f'Done in {run_time}(s) with {count}(iters)')
+    return solution, run_time
 
 def delete_dominated_nodes(nodes):
     dnodes = []

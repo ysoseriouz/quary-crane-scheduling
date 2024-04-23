@@ -12,7 +12,6 @@ def launch(qcs, alpha, early_stop):
 
     best_cost = float('inf')
     best_sol = None
-    explored = set()
 
     while count < MAX_ITERATION:
         count += 1
@@ -24,7 +23,7 @@ def launch(qcs, alpha, early_stop):
         new_sol = construct_greedy_solution(qcs, alpha)
         if new_sol is None:
             continue
-        new_sol = local_search(new_sol, early_stop, qcs, explored)
+        new_sol = local_search(new_sol, early_stop, qcs)
 
         if new_sol.objective() < best_cost and new_sol.isFeasible():
             best_cost = new_sol.objective()
@@ -32,12 +31,13 @@ def launch(qcs, alpha, early_stop):
             print(f'(ITERATION {count}) New solution found: {best_cost}')
             print(best_sol)
 
-    print(f'Done in {time() - start_time}(s) with {count}(iters)')
-    return best_sol
+    run_time = time() - start_time
+    print(f'Done in {run_time}(s) with {count}(iters)')
+    return best_sol, run_time
 
 
 def construct_greedy_solution(qcs, alpha):
-    state = qcs.getStartState()
+    state = qcs.getStartState(False)
     while not qcs.isGoalState(state):
         state = qcs.expandGrasp(state, alpha)
         if state is None:
@@ -46,10 +46,9 @@ def construct_greedy_solution(qcs, alpha):
     return state
 
 
-def local_search(sol, early_stop, qcs, explored):
+def local_search(sol, early_stop, qcs):
     cost = sol.objective()
 
-    explored.add(sol)
     for qc in range(qcs.num_qcs):
         count = 0
         while count < early_stop:
@@ -58,17 +57,15 @@ def local_search(sol, early_stop, qcs, explored):
             if new_sol is None:
                 break
 
-            if new_sol not in explored:
-                explored.add(new_sol)
-                new_sol.evaluateGrasp(qcs)
-                new_cost = new_sol.objective()   # calculate the total cost of a solution
+            new_sol.evaluateGrasp(qcs)
+            new_cost = new_sol.objective()   # calculate the total cost of a solution
 
-                #  update the solution and cost if a better solution is found
-                if new_cost < cost and new_sol.isFeasible():
-                    print('*', end='', flush=True)
-                    sol = new_sol
-                    cost = new_cost
-                    count = 0
+            #  update the solution and cost if a better solution is found
+            if new_cost < cost and new_sol.isFeasible():
+                print('*', end='', flush=True)
+                sol = new_sol
+                cost = new_cost
+                count = 0
             else:
                 del new_sol
 

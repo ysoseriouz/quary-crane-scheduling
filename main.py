@@ -1,4 +1,4 @@
-import sys
+import sys, os
 from pulp import PULP_CBC_CMD
 from qc_scheduling import QCScheduling
 from branch_and_bound import branch_and_bound_dfs
@@ -29,10 +29,17 @@ qcs = QCScheduling(
     {}
 )
 
+# TODO: try with different values of r and early_stop
+# GRASP settings
+r = 0.4
+early_stop = 50
+
+
 def displayResult(solution, filename):
     if solution:
-        solution.lpModel.solve(PULP_CBC_CMD(msg=False))
-        qcs.export(solution.lpModel, filename)
+        if solution.lpModel is not None:
+            solution.lpModel.solve(PULP_CBC_CMD(msg=False))
+            qcs.export(solution.lpModel, filename)
         print(f'Best solution ({solution.status()}): {solution.objective()}')
         print(solution)
     else:
@@ -45,11 +52,54 @@ def run_branch_and_bound():
 
 def run_grasp():
     print('Running GRASP...')
-    # TODO: try with different values of r and early_stop
-    r = 0.4
-    early_stop = 50
     solution = launch(qcs, r, early_stop)
     displayResult(solution, filename='grasp')
+
+def exportSolution(solution, filename, dirname):
+    if solution is not None and solution.lpModel is not None:
+        solution.lpModel.solve(PULP_CBC_CMD(msg=False))
+        qcs.export(solution.lpModel, filename, dirname)
+
+def process(dirname):
+    # Create directory to store results
+    rootDir = 'output'
+    dirpath = os.path.join(rootDir, dirname)
+    if not os.path.exists(rootDir):
+        os.makedirs(rootDir)
+    if not os.path.exists(dirpath):
+        os.makedirs(dirpath)
+
+    s1, r1 = branch_and_bound_dfs(qcs)
+    s2, r2 = launch(qcs, r, early_stop)
+    exportSolution(s1, 'branch_and_bound', dirpath)
+    exportSolution(s2, 'grasp', dirpath)
+
+    with open(os.path.join(dirpath, 'output.txt'), 'w') as f:
+        f.write(f'DATA INPUT {dirname}\n')
+        f.write(f'Number of tasks   : {qcs.num_tasks}\n')
+        f.write(f'Number of QCs     : {qcs.num_qcs}\n')
+        f.write(f'Tasks duration    : {qcs.task_durations}\n')
+        f.write(f'Tasks location    : {qcs.task_locations}\n')
+        f.write(f'QCs location      : {qcs.qc_locations}\n')
+        f.write(f'PSI               : {qcs.non_simultaneous_tasks}\n')
+        f.write(f'PHI               : {qcs.precedence_constrained_tasks}\n')
+
+        f.write('\nOUTPUT:\n')
+        f.write('Branch and bound_DFS\n')
+        if s1:
+            f.write(str(s1) + '\n')
+            f.write(f'Objective value: {s1.objective()}\n')
+        else:
+            f.write('No solution found\n')
+        f.write(f'Run time: {r1}\n')
+        
+        f.write('\nGRASP\n')
+        if s2:
+            f.write(str(s2) + '\n')
+            f.write(f'Objective value: {s2.objective()}\n')
+        else:
+            f.write('No solution found\n')
+        f.write(f'Run time: {r2}\n')
 
 
 def main():
@@ -58,13 +108,4 @@ def main():
     run_grasp()
 
 if __name__ == '__main__':
-    try:
-        option = int(sys.argv[1])
-        if option == 1:
-            run_branch_and_bound()
-        elif option == 2:
-            run_grasp()
-        else:
-            main()
-    except IndexError:
-        main()
+    process(sys.argv[1])
