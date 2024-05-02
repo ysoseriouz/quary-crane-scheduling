@@ -1,12 +1,15 @@
 # Ref: https://github.com/angrymushroom/GRASP
 
-import random
+import random, logging
 from time import time
 
 MAX_ITERATION = 1000
 TIME_LIMIT = 10800 # 3 hours
 
+logger = logging.getLogger()
+
 def launch(qcs, alpha, early_stop):
+    logger.info('GRASP---------------------')
     count = 0
     start_time = time()
 
@@ -16,9 +19,9 @@ def launch(qcs, alpha, early_stop):
     while count < MAX_ITERATION:
         count += 1
         if count % 100 == 0:
-            print('ITERATION %d' % count)
+            logger.info('ITERATION %d' % count)
             if time() - start_time >= TIME_LIMIT:
-                print('Time limit exceeded')
+                logger.info('Time limit exceeded')
                 break
         new_sol = construct_greedy_solution(qcs, alpha)
         if new_sol is None:
@@ -28,11 +31,11 @@ def launch(qcs, alpha, early_stop):
         if new_sol.objective() < best_cost and new_sol.isFeasible():
             best_cost = new_sol.objective()
             best_sol = new_sol
-            print(f'(ITERATION {count}) New solution found: {best_cost}')
-            print(best_sol)
+            logger.info(f'(ITERATION {count}) New solution found: {best_cost}')
+            logger.info(best_sol)
 
     run_time = time() - start_time
-    print(f'Done in {run_time}(s) with {count}(iters)')
+    logger.info(f'Done in {run_time}(s) with {count}(iters)')
     return best_sol, run_time
 
 
@@ -62,7 +65,8 @@ def local_search(sol, early_stop, qcs):
 
             #  update the solution and cost if a better solution is found
             if new_cost < cost and new_sol.isFeasible():
-                print('*', end='', flush=True)
+                logger.info(f'Local search improvement: {new_cost}')
+                logger.info(new_sol)
                 sol = new_sol
                 cost = new_cost
                 count = 0

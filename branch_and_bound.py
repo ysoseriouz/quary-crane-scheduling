@@ -2,10 +2,14 @@ from time import time
 from pulp import *
 from search import *
 import util
+import logging
 
 TIME_LIMIT = 10800 # 3 hours
 
+logger = logging.getLogger()
+
 def branch_and_bound_dfs(qcs):
+    logger.info('Branch and bound---------------------')
     fringe = util.PriorityQueue()
     explored = set()
     start_node = qcs.getStartState()
@@ -19,9 +23,9 @@ def branch_and_bound_dfs(qcs):
     while not fringe.isEmpty():
         count += 1
         if count % 100 == 0:
-            print('ITERATION %d' % count)
+            logger.info('ITERATION %d' % count)
             if time() - start_time >= TIME_LIMIT:
-                print('Time limit exceeded')
+                logger.info('Time limit exceeded')
                 break
         node = fringe.pop()
         node.lpModel.solve(PULP_CBC_CMD(msg=False))
@@ -33,8 +37,8 @@ def branch_and_bound_dfs(qcs):
             if objective > incumbent_objective and node.isFeasible():
                 objective = incumbent_objective
                 solution = node
-                print(f'(ITERATION {count}) New solution found: {node.objective()}')
-                print(solution)
+                logger.info(f'(ITERATION {count}) New solution found: {node.objective()}')
+                logger.info(solution)
         else:
             # Branching
             feasible_child_nodes = []
@@ -53,7 +57,7 @@ def branch_and_bound_dfs(qcs):
                         fringe.push(child_node, minimum_lower_bound)
 
     run_time = time() - start_time
-    print(f'Done in {run_time}(s) with {count}(iters)')
+    logger.info(f'Done in {run_time}(s) with {count}(iters)')
     return solution, run_time
 
 def delete_dominated_nodes(nodes):

@@ -1,4 +1,4 @@
-import sys, os
+import sys, os, logging
 from pulp import PULP_CBC_CMD
 from qc_scheduling import QCScheduling
 from branch_and_bound import branch_and_bound_dfs
@@ -18,16 +18,16 @@ psi = {(1, 2), (2, 3), (3, 4), (4, 5)}
 # PHI: set of ordered pairs of tasks between which there is a precedence relationship (count from 0)
 phi = {}
 
-# qcs = QCScheduling(NUMBER_OF_TASKS, NUMBER_OF_QCS, P, L, LC, psi, phi)
-qcs = QCScheduling(
-    25,
-    3,
-    [104, 278,166, 232, 254,265, 189, 352,108,227,400, 208, 136,173,206, 20,135,104, 365, 296,154,135,207,288, 361],
-    [1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  3,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4],
-    [1, 3, 4],
-    {},
-    {}
-)
+qcs = QCScheduling(NUMBER_OF_TASKS, NUMBER_OF_QCS, P, L, LC, psi, phi)
+# qcs = QCScheduling(
+#     25,
+#     3,
+#     [104, 278,166, 232, 254,265, 189, 352,108,227,400, 208, 136,173,206, 20,135,104, 365, 296,154,135,207,288, 361],
+#     [1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  3,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4],
+#     [1, 3, 4],
+#     {},
+#     {}
+# )
 
 # TODO: try with different values of r and early_stop
 # GRASP settings
@@ -101,11 +101,25 @@ def process(dirname):
             f.write('No solution found\n')
         f.write(f'Run time: {r2}\n')
 
-
-def main():
+def old_main():
     run_branch_and_bound()
     print('\n--------------------------------------------------------------\n')
     run_grasp()
 
+
+def main():
+    if not os.path.exists('log'):
+        os.makedirs('log')
+
+    dirname = sys.argv[1]
+    logging.basicConfig(filename=os.path.join('log', f'{dirname}.log'),
+                        format='%(message)s',
+                        filemode='w',
+                        level=logging.INFO)
+    logger = logging.getLogger()
+    logger.info('Start')
+    process(dirname)
+
+
 if __name__ == '__main__':
-    process(sys.argv[1])
+    main()
